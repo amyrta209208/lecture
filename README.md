@@ -2,6 +2,12 @@
 
 A shareable, server-backed starter for **Start the Hijra — Every lesson brings you closer to Allah**. It keeps the warm storybook visual direction and adds a shared published lesson library, image-based lesson paths, per-image narration and sound uploads, mixed-type quizzes, and session-specific scores.
 
+## Current polish pass
+
+- The homepage uses the supplied panoramic illustration as one clickable banner, so its artwork headline and “Start the Hijra” button are not duplicated by an extra overlay.
+- Clicking the banner opens **Your Hijra Path**.
+- Quiz answer feedback uses a short gold-star burst for correct answers; the vertical **Path Energy** meter stays in the presentation HUD, not inside the quiz dialog.
+
 ## What this version includes
 
 - Storybook-style home screen and illustrated golden path.
