@@ -193,7 +193,7 @@ def load_original_html() -> str:
     shared_lessons = get_published_lessons()
     shared_pdfs = get_shared_pdfs()
     injected = (
-        "window.__WB_SHARED_LESSONS__ = " + json_for_script(shared_lessons) + ";\\n"
+        "window.__WB_SHARED_LESSONS__ = " + json_for_script(shared_lessons) + "; "
         + "window.__WB_SHARED_PDFS__ = " + json_for_script(shared_pdfs) + ";"
     )
     db_anchor = "  const DB_NAME = 'LessonFlowDB';"
