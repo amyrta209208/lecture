@@ -98,27 +98,46 @@ def get_published_lessons() -> list[dict[str, Any]]:
 
 
 
+PDF_SCAN_STATUS: dict[str, Any] = {
+    "configured": False, "bucket": "pdf", "root_entries": 0, "pdf_count": 0,
+    "error": "", "detail": ""
+}
+
+
 def get_shared_pdfs() -> list[dict[str, Any]]:
-    """Discover PDF files in Supabase Storage and create short-lived browser URLs."""
+    """Discover PDFs in Supabase Storage and make browser-readable short-lived URLs."""
+    global PDF_SCAN_STATUS
     url = get_setting("SUPABASE_URL")
     key = get_setting("SUPABASE_SERVICE_KEY")
     bucket_name = get_setting("SUPABASE_PDF_BUCKET", "pdf").strip() or "pdf"
+    status: dict[str, Any] = {
+        "configured": bool(url and key and create_client),
+        "bucket": bucket_name, "root_entries": 0, "pdf_count": 0, "error": "", "detail": ""
+    }
+    PDF_SCAN_STATUS = status
     if not (url and key and create_client):
+        missing = [name for name, value in (("SUPABASE_URL", url), ("SUPABASE_SERVICE_KEY", key)) if not value]
+        status["error"] = "Missing Streamlit secret(s): " + ", ".join(missing)
+        status["detail"] = "Add the exact secret names in Streamlit Cloud → Manage app → Settings → Secrets, save, then reboot."
         return []
+
     try:
         client = create_client(url, key)
         storage = client.storage.from_(bucket_name)
-    except Exception:
+    except Exception as exc:
+        status["error"] = f"Could not initialize Supabase Storage ({type(exc).__name__})."
+        status["detail"] = str(exc)[:240]
         return []
 
     found: list[dict[str, Any]] = []
     visited: set[str] = set()
+    first_list_error = ""
 
     def absolute_url(candidate: Any) -> str:
         if isinstance(candidate, dict):
-            candidate = candidate.get("signedURL") or candidate.get("signedUrl") or candidate.get("publicUrl") or candidate.get("publicURL") or ""
+            candidate = candidate.get("signedURL") or candidate.get("signedUrl") or candidate.get("publicUrl") or candidate.get("publicURL") or candidate.get("signed_url") or ""
         elif not isinstance(candidate, str):
-            candidate = getattr(candidate, "signed_url", "") or getattr(candidate, "signedURL", "") or ""
+            candidate = getattr(candidate, "signed_url", "") or getattr(candidate, "signedURL", "") or getattr(candidate, "signedUrl", "") or ""
         candidate = str(candidate or "")
         if candidate.startswith(("https://", "http://")):
             return candidate
@@ -133,20 +152,29 @@ def get_shared_pdfs() -> list[dict[str, Any]]:
             link = absolute_url(storage.create_signed_url(path, 7 * 24 * 60 * 60))
             if link:
                 return link
-        except Exception:
-            pass
+        except Exception as exc:
+            status["error"] = f"Could not create a signed URL for {path!r} ({type(exc).__name__})."
+            status["detail"] = str(exc)[:240]
         try:
             return absolute_url(storage.get_public_url(path))
         except Exception:
             return ""
 
     def walk(folder: str = "", depth: int = 0) -> None:
+        nonlocal first_list_error
         if depth > 5 or folder in visited:
             return
         visited.add(folder)
         try:
-            entries = storage.list(folder, {"limit": 1000, "offset": 0, "sortBy": {"column": "name", "order": "asc"}}) or []
-        except Exception:
+            entries = storage.list(folder or "", {
+                "limit": 1000, "offset": 0,
+                "sortBy": {"column": "name", "order": "asc"}
+            }) or []
+            if depth == 0:
+                status["root_entries"] = len(entries)
+        except Exception as exc:
+            if not first_list_error:
+                first_list_error = f"Could not list bucket {bucket_name!r} ({type(exc).__name__}): {str(exc)[:240]}"
             return
         for entry in entries:
             if not isinstance(entry, dict):
@@ -158,17 +186,28 @@ def get_shared_pdfs() -> list[dict[str, Any]]:
             if name.lower().endswith(".pdf"):
                 link = make_url(path)
                 if not link:
+                    if not status["error"]:
+                        status["error"] = f"Could not create a usable URL for {path!r}."
+                        status["detail"] = "Check Storage read permissions and the server-side key."
                     continue
                 timestamp = str(entry.get("updated_at") or entry.get("created_at") or datetime.now(timezone.utc).isoformat())
                 stable_id = "shared-pdf-" + hashlib.sha256(f"{bucket_name}:{path}".encode("utf-8")).hexdigest()[:28]
-                found.append({"id": stable_id, "path": path, "name": name, "title": Path(name).stem or name,
-                              "url": link, "updated_at": timestamp, "bucket": bucket_name})
+                found.append({
+                    "id": stable_id, "path": path, "name": name,
+                    "title": Path(name).stem or name, "url": link,
+                    "updated_at": timestamp, "bucket": bucket_name
+                })
             elif depth < 5 and entry.get("id") is None and not entry.get("metadata"):
                 walk(path, depth + 1)
 
     walk()
+    if first_list_error:
+        status["error"] = first_list_error
+        status["detail"] = "Confirm the bucket name and server-side Storage permissions. The bucket contents were not fully listed."
+    status["pdf_count"] = len(found)
+    if not found and not status["error"]:
+        status["detail"] = f"Connected to bucket {bucket_name!r}, but no PDF files were found. Confirm Allah.pdf is inside this exact bucket or one of its folders."
     return sorted(found, key=lambda item: (item["title"].casefold(), item["path"].casefold()))
-
 
 def json_for_script(value: Any) -> str:
     # Prevent database text from closing the injected script element.
@@ -194,7 +233,9 @@ def load_original_html() -> str:
     shared_pdfs = get_shared_pdfs()
     injected = (
         "window.__WB_SHARED_LESSONS__ = " + json_for_script(shared_lessons) + "; "
-        + "window.__WB_SHARED_PDFS__ = " + json_for_script(shared_pdfs) + ";"
+        + "window.__WB_SHARED_PDFS__ = " + json_for_script(shared_pdfs) + "; "
+        + "window.__WB_SHARED_PDF_STATUS__ = " + json_for_script(PDF_SCAN_STATUS) + "; "
+        + "window.__WB_PDF_LOAD_ERRORS__ = [];"
     )
     db_anchor = "  const DB_NAME = 'LessonFlowDB';"
     if db_anchor not in page:
@@ -335,7 +376,11 @@ def load_original_html() -> str:
         localById.set(source.id, sharedLesson);
         renderedPages.forEach(page => { if (page.url) URL.revokeObjectURL(page.url); });
       } catch (err) {
-        console.warn('Could not convert shared PDF into a lesson:', source.path || source.name, err);
+        const label = String(source.name || source.path || 'PDF');
+        console.error('Could not convert shared PDF into a lesson:', label, err);
+        if (Array.isArray(window.__WB_PDF_LOAD_ERRORS__)) {
+          window.__WB_PDF_LOAD_ERRORS__.push(label + ': ' + String(err && err.message || err).slice(0, 180));
+        }
       }
     }
   }
@@ -350,6 +395,27 @@ def load_original_html() -> str:
     if init_anchor not in page:
         raise RuntimeError("The original Wonderbook startup routine was not found.")
     page = page.replace(init_anchor, init_replacement, 1)
+
+    status_tail = """    $('storageText').textContent = ok ? 'On this device' : 'Session';
+    renderHome();"""
+    status_tail_replacement = """    const pdfStatus = window.__WB_SHARED_PDF_STATUS__ || {};
+    const pdfErrors = Array.isArray(window.__WB_PDF_LOAD_ERRORS__) ? window.__WB_PDF_LOAD_ERRORS__ : [];
+    if (!ok) {
+      $('storageText').textContent = 'Session';
+    } else if (Number(pdfStatus.pdf_count || 0) > 0 && pdfErrors.length) {
+      $('storageText').textContent = 'PDF loading issue';
+    } else if (Number(pdfStatus.pdf_count || 0) > 0) {
+      $('storageText').textContent = 'Shared PDFs connected';
+    } else {
+      $('storageText').textContent = 'On this device';
+    }
+    renderHome();
+    if (pdfStatus.error) showToast('Shared PDFs: ' + pdfStatus.error);
+    else if (pdfStatus.detail && !Number(pdfStatus.pdf_count || 0)) showToast(pdfStatus.detail);
+    if (pdfErrors.length) showToast('PDF conversion failed: ' + pdfErrors[0]);"""
+    if status_tail not in page:
+        raise RuntimeError("Could not find original storage status label")
+    page = page.replace(status_tail, status_tail_replacement, 1)
 
     # Keep the iframe sized to the visible app viewport so presentation/full-screen
     # behavior remains as close as possible to the standalone HTML.
