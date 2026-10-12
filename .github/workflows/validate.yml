@@ -1,0 +1,36 @@
+name: Validate Python
+
+on:
+  push:
+    branches: [main, wonderbook-improvements]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python sources
+        run: python -m compileall -q app.py
+      - name: Validate required artwork and config examples
+        run: |
+          test -s assets/hero.png
+          test -s assets/hijra_path.png
+          test -s .streamlit/config.toml
+          test -s .streamlit/secrets.example.toml
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          import tomllib
+
+          ast.parse(Path("app.py").read_text(encoding="utf-8"))
+          tomllib.loads(Path(".streamlit/config.toml").read_text(encoding="utf-8"))
+          tomllib.loads(Path(".streamlit/secrets.example.toml").read_text(encoding="utf-8"))
+          print("Python syntax, artwork files, and TOML configuration are valid.")
+          PY
