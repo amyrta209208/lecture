@@ -69,6 +69,11 @@ section[data-testid="stSidebar"] { background:#f8f0d9; border-right:1px solid #d
 [data-testid="stMetric"] { background:#fff9e9; border:1px solid #e8d7af; padding:12px 16px; border-radius:18px; }
 .wb-eyebrow { text-transform:uppercase; letter-spacing:.18em; font-size:.72rem; font-weight:700; color:#ab7a31; margin-bottom:.5rem; }
 .wb-subtitle { color:#7e6848; font-size:1.05rem; }
+.wb-home-banner-link { display:block; border-radius:28px; overflow:hidden; border:2px solid #d7ad5b; box-shadow:0 9px 0 rgba(185,135,59,.16); line-height:0; background:#fff8e6; transition:transform .2s ease,box-shadow .2s ease; }
+.wb-home-banner-link:hover { transform:translateY(-2px); box-shadow:0 11px 0 rgba(185,135,59,.13); }
+.wb-home-banner-link:focus-visible { outline:4px solid #839264; outline-offset:4px; }
+.wb-home-banner { display:block; width:100%; height:auto; object-fit:cover; }
+.wb-home-prompt { margin-top:12px; padding:0 4px; }
 .wb-hero { background-size:cover; background-position:center; border:2px solid #d7ad5b; border-radius:28px; overflow:hidden; min-height:270px; padding:30px; box-shadow:0 9px 0 rgba(185,135,59,.16); display:flex; flex-direction:column; justify-content:flex-end; }
 .wb-hero h1 { font-family:'Playfair Display',Georgia,serif !important; line-height:1.05; font-size:clamp(2.15rem,4vw,4rem); margin:0; max-width:720px; color:#674719; text-shadow:0 1px 10px rgba(255,250,227,.55); }
 .wb-hero p { color:#775f3d; font-size:1.12rem; margin:.65rem 0 0; max-width:520px; }
@@ -95,6 +100,10 @@ section[data-testid="stSidebar"] { background:#f8f0d9; border-right:1px solid #d
 @keyframes wbSpark { 0%{transform:translateY(4px);opacity:0} 35%{opacity:1} 100%{transform:translateY(-7px);opacity:0} }
 .wb-bad { padding:13px; border-radius:14px; background:#fff0df; border:1px solid #e8bb89; color:#975c33; font-weight:700; }
 .wb-footer { margin-top:2.2rem; padding-top:1rem; border-top:1px solid #e2cf9f; color:#947b52; font-size:.78rem; }
+.wb-celebrate-burst { position:relative; height:48px; margin:0 0 5px; pointer-events:none; overflow:visible; }
+.wb-celebrate-burst span { position:absolute; left:50%; top:24px; font-size:1.2rem; font-weight:800; color:#c8952c; text-shadow:0 1px 0 #fff7d5; opacity:0; animation:wbConfetti .95s cubic-bezier(.15,.65,.25,1) both; animation-delay:var(--delay,0ms); }
+@keyframes wbConfetti { 0% { opacity:0; transform:translate(-50%,0) scale(.35) rotate(0deg); } 16% { opacity:1; } 100% { opacity:0; transform:translate(calc(-50% + var(--dx)),var(--dy)) scale(.8) rotate(170deg); } }
+@media (prefers-reduced-motion: reduce) { .wb-celebrate-burst span { animation:none; opacity:.9; transform:translate(calc(-50% + var(--dx)),var(--dy)); } .wb-home-banner-link { transition:none; } }
 @media (max-width:700px) { .wb-hero{padding:19px;min-height:250px;border-radius:20px}.wb-map-marker .label{max-width:74px}.wb-map-marker .quiz-flag{display:none}.block-container{padding-left:.7rem;padding-right:.7rem} }
 </style>
 """
@@ -407,17 +416,16 @@ def save_and_refresh(lesson: dict[str, Any], message: str = "Saved."):
 
 
 def render_home():
+    # The artwork already includes its own headline and CTA. Use the illustration as-is
+    # so the title/button are not duplicated by a second HTML overlay.
     hero_uri = html.escape(data_uri(HERO_IMAGE), quote=True)
-    st.markdown(f"""<div class="wb-hero" style="background-image:linear-gradient(90deg,rgba(255,250,233,.91) 0%,rgba(255,250,233,.60) 39%,rgba(255,250,233,.02) 72%),url('{hero_uri}')">
-      <div class="wb-eyebrow">Open a book. Find a world.</div><h1>Every lesson brings<br>you closer to Allah</h1><p>Learn about your deen.</p>
-    </div>""", unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        if st.button("▶  Start the Hijra  ↗", type="primary", use_container_width=True, key="start_hijra"):
-            update_page("map")
-            st.rerun()
-    with c2:
-        st.markdown('<p class="wb-subtitle" style="padding-top:12px">Follow the golden path, explore your lessons, and collect what you learn along the way.</p>', unsafe_allow_html=True)
+    st.markdown(f"""
+      <a class="wb-home-banner-link" href="?start_hijra=1" aria-label="Start the Hijra adventure">
+        <img class="wb-home-banner" src="{hero_uri}"
+          alt="Every lesson brings you closer to Allah. Learn about your deen. Start the Hijra." />
+      </a>
+      <p class="wb-subtitle wb-home-prompt">Follow the golden path, explore your lessons, and collect what you learn along the way. Click the illustrated banner to begin.</p>
+    """, unsafe_allow_html=True)
     all_published = store.list_lessons(False)
     if all_published:
         st.markdown("### Your storybook shelf")
@@ -436,7 +444,6 @@ def render_home():
                         st.rerun()
     if not REMOTE_ENABLED:
         st.markdown('<div class="wb-footer">Local library mode · lessons are stored on this computer/server. Add Supabase storage before hosting if everyone should see the same shared lesson library.</div>', unsafe_allow_html=True)
-
 
 def render_map(viewer_id: str):
     st.markdown('<div class="wb-eyebrow">Your learning journey</div><h1 style="margin-bottom:0">Your Hijra Path</h1><p class="wb-subtitle">Choose a landmark to open its story. Quiz badges remember your progress in this session.</p>', unsafe_allow_html=True)
@@ -510,7 +517,7 @@ def quiz_dialog(lesson: dict[str, Any], item: dict[str, Any], viewer_id: str):
         qidx = len(questions) - 1
         run["index"] = qidx
     question = questions[qidx]
-    col_question, col_progress = st.columns([5, 1])
+    col_question = st.container()
     with col_question:
         st.caption(f"{lesson['title']} · Picture {int(st.session_state.get('present_index', 0)) + 1} · Question {qidx + 1} of {len(questions)}")
         st.markdown(f"### {html.escape(question.get('prompt', 'Your question'))}")
@@ -560,7 +567,12 @@ def quiz_dialog(lesson: dict[str, Any], item: dict[str, Any], viewer_id: str):
         else:
             if answered:
                 st.markdown('<div class="wb-success">✦ Correct! Wonderful work! ✦</div>', unsafe_allow_html=True)
-                st.markdown("<div style='text-align:center;font-size:1.2rem;letter-spacing:12px;color:#d5a63b;animation:wbSpark 1.3s ease-out infinite'>✦ ✧ ✦ ✧ ✦</div>", unsafe_allow_html=True)
+                st.markdown("""<div class="wb-celebrate-burst" aria-hidden="true">
+                  <span style="--dx:-118px;--dy:-23px;--delay:0ms">✦</span><span style="--dx:-85px;--dy:-38px;--delay:35ms">✧</span>
+                  <span style="--dx:-52px;--dy:-26px;--delay:70ms">✦</span><span style="--dx:-20px;--dy:-42px;--delay:15ms">✧</span>
+                  <span style="--dx:18px;--dy:-31px;--delay:55ms">✦</span><span style="--dx:51px;--dy:-42px;--delay:25ms">✧</span>
+                  <span style="--dx:86px;--dy:-25px;--delay:80ms">✦</span><span style="--dx:119px;--dy:-37px;--delay:45ms">✧</span>
+                </div>""", unsafe_allow_html=True)
             else:
                 st.markdown('<div class="wb-bad">Not quite — keep exploring. You can learn from this one.</div>', unsafe_allow_html=True)
                 st.caption(f"Answer: {run.get('last_expected', 'See lesson notes')}")
@@ -583,9 +595,6 @@ def quiz_dialog(lesson: dict[str, Any], item: dict[str, Any], viewer_id: str):
                     st.session_state.path_energy = pct
                     st.session_state.quiz_run = run
                     st.rerun()
-    with col_progress:
-        pct = round(100 * int(run.get("correct", 0)) / len(questions)) if questions else 0
-        st.markdown(f"<div class='wb-quiz-meter' style='min-height:220px'><div class='wb-meter-label'>Quiz score</div><div class='wb-meter-track' style='height:170px'><div class='wb-meter-fill' style='height:{pct}%'></div></div><div class='wb-meter-number'>{pct}%</div></div>", unsafe_allow_html=True)
 
 
 def render_present(viewer_id: str):
@@ -990,6 +999,12 @@ if "present_index" not in st.session_state:
     st.session_state.present_index = 0
 if "quiz_open" not in st.session_state:
     st.session_state.quiz_open = False
+
+start_hijra_param = st.query_params.get("start_hijra")
+if start_hijra_param:
+    st.session_state.page = "map"
+    st.session_state.active_lesson_id = None
+    st.query_params.clear()
 
 open_lesson_param = st.query_params.get("open_lesson")
 if open_lesson_param:
