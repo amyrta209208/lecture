@@ -1,103 +1,61 @@
-# Wonderbook — Start the Hijra (Streamlit edition)
+# Wonderbook — Start the Hijra
 
-A shareable, server-backed starter for **Start the Hijra — Every lesson brings you closer to Allah**. It keeps the warm storybook visual direction and adds a shared published lesson library, image-based lesson paths, per-image narration and sound uploads, mixed-type quizzes, and session-specific scores.
+This Streamlit deployment serves the original Wonderbook HTML interface inside Streamlit rather than rebuilding the screens from Streamlit widgets. This preserves the existing layout, drag/reorder controls, image selection and deletion, narration/audio tools, quiz editor, image transitions, PDF import/rendering, and PDF/PowerPoint export behavior from the HTML source.
 
-## Current polish pass
+## How the app runs
 
-- The homepage uses the supplied panoramic illustration as one clickable banner, so its artwork headline and “Start the Hijra” button are not duplicated by an extra overlay.
-- Clicking the banner opens **Your Hijra Path**.
-- Quiz answer feedback uses a short gold-star burst for correct answers; the vertical **Path Energy** meter stays in the presentation HUD, not inside the quiz dialog.
-
-## What this version includes
-
-- Storybook-style home screen and illustrated golden path.
-- First-image thumbnails on the path for each lesson.
-- Lesson manager to create, publish/unpublish, edit, and delete lessons.
-- Multiple images per lesson, captions, narration audio, and scene sound uploads per image.
-- Multiple-choice, true/false, and short-answer questions per image.
-- Quiz modal, per-attempt percentage scores, and score badges on the path.
-- Local SQLite mode for trying the app on one computer.
-- Optional Supabase Postgres + Storage backend for a persistent shared lesson library after deployment.
-- Migration from the standalone HTML app: use the included export-enabled `legacy/wonderbook_visual_automatch_fixed.html` to download a JSON lesson pack, then import it in **Manage lessons**. The pack contains image files, available per-image narration/sound blobs, captions, and quiz questions.
-
-**Migration scope:** this is the first Streamlit edition of the core shared lesson/presentation flow, not a pixel-for-pixel conversion of every capability in the standalone HTML. In particular, browser-based automatic sound-library matching and the full set of theatrical image transitions are not yet ported. When migrating, browser-origin rules may mean the export-enabled HTML needs to replace your current local HTML file at the same path before it can see the existing IndexedDB records.
+- Main app: `app.py`. It embeds `legacy/wonderbook_visual_automatch_fixed.html` and keeps its browser-side JavaScript behavior, including the PDF.js page-to-image conversion.
+- Shared-library editor/importer: open the same app URL with `?manage_shared=1`, for example `https://YOUR-APP.streamlit.app/?manage_shared=1`.
+- Published lessons are read from Supabase and seeded into the original browser UI. Lesson updates are published by exporting a JSON lesson pack from the main interface, then importing that pack through the shared-library route.
+- The local lesson database in the browser remains device/browser-specific. Only lessons exported and imported into the shared library become visible to other visitors.
 
 ## Try it locally
 
 Requires Python 3.10 or newer.
 
-### Windows
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-1. Install Python from [python.org](https://www.python.org/downloads/) if needed.
-2. Open this folder in a terminal.
-3. Run:
+Without Supabase secrets, the original interface still runs and stores its lesson library locally in the browser. The shared-library route will show that hosted sharing is not configured.
 
-   ```powershell
-   py -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   streamlit run app.py
-   ```
-
-4. Create `.streamlit/secrets.toml` with an editor password:
-
-   ```toml
-   EDITOR_PASSWORD = "choose-a-long-local-password"
-   ```
-
-5. Open the local URL printed in the terminal. In local mode, lessons are saved in `data/wonderbook.sqlite3` and uploaded files in `data/media/`.
-
-Local mode is suitable for trying out the app. It does not automatically copy lesson data to a public website. Keep `.streamlit/secrets.toml` private; it is excluded by `.gitignore`.
-
-## Make a public app with shared lessons
-
-For a link that other people can open and that retains lessons after app restarts, deploy the app with a Supabase backend. Streamlit Community Cloud provides a shareable `*.streamlit.app` URL after deployment, while Supabase stores the shared lesson metadata and uploaded media.
-
-### 1. Create the Supabase database and media bucket
+## Configure shared lessons
 
 1. Create a project at [supabase.com](https://supabase.com/).
-2. Open **SQL Editor** in the project.
-3. Paste and run the contents of `setup_supabase.sql`.
-4. In **Project Settings → API**, copy the project URL and the server-side `service_role` key. Treat that key like a password: never put it in GitHub or browser code.
+2. In Supabase SQL Editor, run `setup_supabase.sql`.
+3. In the Supabase API settings, copy the project URL and server-side service-role key.
+4. In Streamlit Community Cloud, open App settings → Secrets and add:
 
-The setup script creates `wonderbook_lessons`, `wonderbook_attempts`, and a public media bucket called `wonderbook-media`. The media bucket is public because published lesson images and audio are meant to be playable by viewers with the app link. Do not upload confidential material.
+```toml
+SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
+SUPABASE_SERVICE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+EDITOR_PASSWORD = "choose-a-long-private-password"
+```
 
-### 2. Put this folder in GitHub
+Never commit the real service-role key or editor password to GitHub. The media bucket in the SQL script is public because published lesson images/audio need to be loaded by viewers; do not publish private or sensitive content.
 
-Create a GitHub repository and upload the contents of this folder. Keep `.streamlit/secrets.toml` out of Git; `.gitignore` already excludes it. Do not upload real keys or passwords.
+## Publish the lessons you created
 
-### 3. Deploy with Streamlit Community Cloud
+1. Open the main app URL and work in the original Wonderbook interface.
+2. Click **Export for sharing** and save the generated JSON lesson pack.
+3. Open the app URL with `?manage_shared=1`.
+4. Unlock **Manage lessons**, open **Import lessons from your existing standalone Wonderbook**, and upload the JSON pack.
+5. Keep **Publish this lesson to everyone with the link** enabled. Return to the main URL; published lessons will load into the same original UI.
+6. To update an already-shared lesson, export and import it again. Lesson and picture IDs are retained so re-import updates the existing lesson rather than making a duplicate.
 
-1. Go to [share.streamlit.io](https://share.streamlit.io/).
-2. Choose **Create app** and select your repository.
-3. Set the entrypoint file to `app.py`.
-4. In the app's **Secrets** settings, add the following TOML with your own values:
+The import/publication workflow requires Supabase to be configured for durable sharing across different browsers. Without Supabase, the app runs locally but the shared store is not durable across visitors/restarts.
 
-   ```toml
-   SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
-   SUPABASE_SERVICE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY"
-   EDITOR_PASSWORD = "choose-a-long-private-password"
-   ```
+## PDF behavior
 
-5. Deploy. Streamlit will give the app a URL you can share. See the [official deployment guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app).
+PDF-to-image conversion stays in the original HTML/JavaScript implementation (PDF.js); this wrapper does not parse or rasterize PDFs in Python. The PDF rendering settings and output page naming therefore remain in the existing source file. PDF.js and its worker load from a CDN, so the browser needs an internet connection when opening the app.
 
-### 4. Add and publish lessons
+## Files
 
-1. Open your deployed URL.
-2. Click **Manage lessons**.
-3. Enter the `EDITOR_PASSWORD` you set in Streamlit Secrets.
-4. Create a lesson, upload its images, then add narration/sound and questions to individual pictures.
-5. Leave **Published / visible to students** enabled for lessons you want others to see.
-6. Share the Streamlit URL with your learners. They can explore published lessons and complete quizzes without the editor password.
-
-Published scores are tracked per anonymous Streamlit session, not as identified student records. This avoids collecting student names by default. If you later want class rosters, teacher reports, or durable student accounts, that should be added deliberately with proper access controls.
-
-## Backups
-
-For local mode, back up the whole `data/` folder. For hosted mode, use Supabase's database backup/export tools and keep copies of lesson source media where appropriate.
-
-## Security notes
-
-- Never commit `SUPABASE_SERVICE_KEY` or `EDITOR_PASSWORD` to GitHub.
-- Public lessons and the uploaded media bucket are intended to be available to app viewers; do not publish private/student-sensitive content.
-- Before sharing broadly, set a strong `EDITOR_PASSWORD` and configure Supabase so edits are persisted centrally.
+- `app.py` — Streamlit wrapper that embeds the original UI.
+- `legacy/wonderbook_visual_automatch_fixed.html` — original HTML/JavaScript application and PDF processing.
+- `streamlit_library_admin.py` — shared-library management and lesson-pack importer.
+- `setup_supabase.sql` — shared database and public media bucket.
+- `requirements.txt` — Python dependencies.
