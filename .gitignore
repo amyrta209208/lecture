@@ -1,0 +1,5 @@
+.streamlit/secrets.toml
+data/*.sqlite3
+data/media/*
+__pycache__/
+*.pyc
