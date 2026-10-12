@@ -57,7 +57,7 @@ CSS = r"""
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700;800&display=swap');
 :root { --ink:#5e4225; --ink-soft:#8a714c; --cream:#fff9e9; --gold:#d7a343; --gold-dark:#9b6229; --leaf:#7d8c67; --line:#e8d7af; }
 .stApp { background: radial-gradient(circle at 10% 2%, #fff9eb 0, #f5edcf 38%, #e8e0bc 100%); color:var(--ink); }
-.block-container { max-width: 1450px; padding-top: 1.15rem; padding-bottom: 3rem; }
+.block-container { max-width: 1450px; padding-top: 5.2rem; padding-bottom: 3rem; }
 html, body, [class*="css"] { font-family:'DM Sans',sans-serif; }
 h1,h2,h3,h4 { font-family:'Playfair Display',Georgia,serif !important; color:#654621; }
 section[data-testid="stSidebar"] { background:#f8f0d9; border-right:1px solid #dfc58e; }
@@ -73,6 +73,12 @@ section[data-testid="stSidebar"] { background:#f8f0d9; border-right:1px solid #d
 .wb-home-banner-link:hover { transform:translateY(-2px); box-shadow:0 11px 0 rgba(185,135,59,.13); }
 .wb-home-banner-link:focus-visible { outline:4px solid #839264; outline-offset:4px; }
 .wb-home-banner { display:block; width:100%; height:auto; object-fit:cover; }
+.st-key-wb_home_hero { position:relative; }
+.st-key-wb_home_hero [data-testid="stButton"] { position:absolute; z-index:5; left:4.4%; bottom:6.5%; width:27.7%; height:23.5%; margin:0; }
+.st-key-wb_home_hero [data-testid="stButton"] button { width:100%; height:100%; min-height:0; padding:0; opacity:0; background:transparent; color:transparent; border:0; box-shadow:none; outline:none; cursor:pointer; }
+.st-key-wb_home_hero [data-testid="stButton"] button:hover,
+.st-key-wb_home_hero [data-testid="stButton"] button:focus-visible { opacity:1; background:rgba(255,224,137,.12); border:2px solid rgba(176,119,35,.68); box-shadow:0 0 0 3px rgba(255,245,205,.65); border-radius:20px; outline:none; }
+.st-key-wb_home_hero [data-testid="stButton"] button:focus-visible { opacity:1; }
 .wb-home-prompt { margin-top:12px; padding:0 4px; }
 .wb-hero { background-size:cover; background-position:center; border:2px solid #d7ad5b; border-radius:28px; overflow:hidden; min-height:270px; padding:30px; box-shadow:0 9px 0 rgba(185,135,59,.16); display:flex; flex-direction:column; justify-content:flex-end; }
 .wb-hero h1 { font-family:'Playfair Display',Georgia,serif !important; line-height:1.05; font-size:clamp(2.15rem,4vw,4rem); margin:0; max-width:720px; color:#674719; text-shadow:0 1px 10px rgba(255,250,227,.55); }
@@ -416,16 +422,19 @@ def save_and_refresh(lesson: dict[str, Any], message: str = "Saved."):
 
 
 def render_home():
-    # The artwork already includes its own headline and CTA. Use the illustration as-is
-    # so the title/button are not duplicated by a second HTML overlay.
+    # The supplied illustration contains its own headline and CTA. Overlay a real
+    # Streamlit button on the painted CTA region so it works reliably and accessibly.
     hero_uri = html.escape(data_uri(HERO_IMAGE), quote=True)
-    st.markdown(f"""
-      <a class="wb-home-banner-link" href="?start_hijra=1" aria-label="Start the Hijra adventure">
-        <img class="wb-home-banner" src="{hero_uri}"
-          alt="Every lesson brings you closer to Allah. Learn about your deen. Start the Hijra." />
-      </a>
-      <p class="wb-subtitle wb-home-prompt">Follow the golden path, explore your lessons, and collect what you learn along the way. Click the illustrated banner to begin.</p>
-    """, unsafe_allow_html=True)
+    with st.container(key="wb_home_hero"):
+        st.markdown(f"""
+          <div class="wb-home-banner-link">
+            <img class="wb-home-banner" src="{hero_uri}"
+              alt="Every lesson brings you closer to Allah. Learn about your deen. Start the Hijra." />
+          </div>
+        """, unsafe_allow_html=True)
+        if st.button("Start the Hijra", key="start_hijra_cta", help="Begin your Hijra learning path"):
+            update_page("map")
+            st.rerun()
     all_published = store.list_lessons(False)
     if all_published:
         st.markdown("### Your storybook shelf")
@@ -443,7 +452,7 @@ def render_home():
                         open_present(lesson["id"])
                         st.rerun()
     if not REMOTE_ENABLED:
-        st.markdown('<div class="wb-footer">Local library mode · lessons are stored on this computer/server. Add Supabase storage before hosting if everyone should see the same shared lesson library.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="wb-footer">Local library mode · lessons are stored on this computer/server. Configure Supabase to share the same persistent lesson library with everyone.</div>', unsafe_allow_html=True)
 
 def render_map(viewer_id: str):
     st.markdown('<div class="wb-eyebrow">Your learning journey</div><h1 style="margin-bottom:0">Your Hijra Path</h1><p class="wb-subtitle">Choose a landmark to open its story. Quiz badges remember your progress in this session.</p>', unsafe_allow_html=True)
@@ -999,12 +1008,6 @@ if "present_index" not in st.session_state:
     st.session_state.present_index = 0
 if "quiz_open" not in st.session_state:
     st.session_state.quiz_open = False
-
-start_hijra_param = st.query_params.get("start_hijra")
-if start_hijra_param:
-    st.session_state.page = "map"
-    st.session_state.active_lesson_id = None
-    st.query_params.clear()
 
 open_lesson_param = st.query_params.get("open_lesson")
 if open_lesson_param:
