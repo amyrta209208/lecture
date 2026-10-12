@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import runpy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +97,79 @@ def get_published_lessons() -> list[dict[str, Any]]:
         return []
 
 
+
+def get_shared_pdfs() -> list[dict[str, Any]]:
+    """Discover PDF files in Supabase Storage and create short-lived browser URLs."""
+    url = get_setting("SUPABASE_URL")
+    key = get_setting("SUPABASE_SERVICE_KEY")
+    bucket_name = get_setting("SUPABASE_PDF_BUCKET", "pdf").strip() or "pdf"
+    if not (url and key and create_client):
+        return []
+    try:
+        client = create_client(url, key)
+        storage = client.storage.from_(bucket_name)
+    except Exception:
+        return []
+
+    found: list[dict[str, Any]] = []
+    visited: set[str] = set()
+
+    def absolute_url(candidate: Any) -> str:
+        if isinstance(candidate, dict):
+            candidate = candidate.get("signedURL") or candidate.get("signedUrl") or candidate.get("publicUrl") or candidate.get("publicURL") or ""
+        elif not isinstance(candidate, str):
+            candidate = getattr(candidate, "signed_url", "") or getattr(candidate, "signedURL", "") or ""
+        candidate = str(candidate or "")
+        if candidate.startswith(("https://", "http://")):
+            return candidate
+        if candidate.startswith("/storage/v1/"):
+            return url.rstrip("/") + candidate
+        if candidate.startswith("/object/"):
+            return url.rstrip("/") + "/storage/v1" + candidate
+        return ""
+
+    def make_url(path: str) -> str:
+        try:
+            link = absolute_url(storage.create_signed_url(path, 7 * 24 * 60 * 60))
+            if link:
+                return link
+        except Exception:
+            pass
+        try:
+            return absolute_url(storage.get_public_url(path))
+        except Exception:
+            return ""
+
+    def walk(folder: str = "", depth: int = 0) -> None:
+        if depth > 5 or folder in visited:
+            return
+        visited.add(folder)
+        try:
+            entries = storage.list(folder, {"limit": 1000, "offset": 0, "sortBy": {"column": "name", "order": "asc"}}) or []
+        except Exception:
+            return
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name or name in {".", "..", ".emptyFolderPlaceholder"}:
+                continue
+            path = f"{folder}/{name}" if folder else name
+            if name.lower().endswith(".pdf"):
+                link = make_url(path)
+                if not link:
+                    continue
+                timestamp = str(entry.get("updated_at") or entry.get("created_at") or datetime.now(timezone.utc).isoformat())
+                stable_id = "shared-pdf-" + hashlib.sha256(f"{bucket_name}:{path}".encode("utf-8")).hexdigest()[:28]
+                found.append({"id": stable_id, "path": path, "name": name, "title": Path(name).stem or name,
+                              "url": link, "updated_at": timestamp, "bucket": bucket_name})
+            elif depth < 5 and entry.get("id") is None and not entry.get("metadata"):
+                walk(path, depth + 1)
+
+    walk()
+    return sorted(found, key=lambda item: (item["title"].casefold(), item["path"].casefold()))
+
+
 def json_for_script(value: Any) -> str:
     # Prevent database text from closing the injected script element.
     return (
@@ -116,14 +191,18 @@ def load_original_html() -> str:
     # Keep that small addition to support publishing, without changing any of the
     # original controls or PDF conversion functions.
     shared_lessons = get_published_lessons()
-    injected = "window.__WB_SHARED_LESSONS__ = " + json_for_script(shared_lessons) + ";"
+    shared_pdfs = get_shared_pdfs()
+    injected = (
+        "window.__WB_SHARED_LESSONS__ = " + json_for_script(shared_lessons) + ";\\n"
+        + "window.__WB_SHARED_PDFS__ = " + json_for_script(shared_pdfs) + ";"
+    )
     db_anchor = "  const DB_NAME = 'LessonFlowDB';"
     if db_anchor not in page:
         raise RuntimeError("The original Wonderbook database initialization was not found.")
     page = page.replace(db_anchor, "  " + injected + "\n" + db_anchor, 1)
 
     put_anchor = "        id: lesson.id,\n        name: lesson.name,\n        images: lesson.images.map(img => ({"
-    put_replacement = "        id: lesson.id,\n        name: lesson.name,\n        sharedUpdatedAt: Math.max(0, Number(lesson.sharedUpdatedAt) || 0),\n        images: lesson.images.map(img => ({"
+    put_replacement = "        id: lesson.id,\n        name: lesson.name,\n        sharedUpdatedAt: Math.max(0, Number(lesson.sharedUpdatedAt) || 0),\n        sharedSourcePdf: Boolean(lesson.sharedSourcePdf),\n        sharedPdfPath: String(lesson.sharedPdfPath || ''),\n        images: lesson.images.map(img => ({"
     if put_anchor not in page:
         raise RuntimeError("The original Wonderbook lesson-save function was not found.")
     page = page.replace(put_anchor, put_replacement, 1)
@@ -203,9 +282,70 @@ def load_original_html() -> str:
     }
   }
 
+  async function seedSharedPdfsFromBucket(){
+    const sources = Array.isArray(window.__WB_SHARED_PDFS__) ? window.__WB_SHARED_PDFS__ : [];
+    if (!db || !sources.length) return;
+    const currentLessons = await getAllLessons();
+    const localById = new Map(currentLessons.map(lesson => [lesson.id, lesson]));
+    for (const source of sources){
+      if (!source || !source.id || !source.url) continue;
+      const updatedAt = Date.parse(source.updated_at || '') || Date.now();
+      const existing = localById.get(source.id);
+      if (existing && Number(existing.sharedUpdatedAt || 0) >= updatedAt) continue;
+      try {
+        const pdfBlob = await fetchSharedBlob(source.url);
+        if (!pdfBlob) {
+          console.warn('Could not load shared PDF:', source.path || source.name);
+          continue;
+        }
+        const pdfFile = new File([pdfBlob], source.name || 'Shared lesson.pdf', {type:'application/pdf'});
+        const renderedPages = await pdfToImages(pdfFile);
+        if (!renderedPages.length) continue;
+        const previousPages = existing && Array.isArray(existing.images) ? existing.images : [];
+        const images = renderedPages.map((page, pageIndex) => {
+          const old = previousPages[pageIndex] || {};
+          return {
+            ...page,
+            id: old.id || (source.id + '-page-' + String(pageIndex + 1).padStart(4, '0')),
+            notes: old.notes || '',
+            audioBlob: old.audioBlob || null,
+            audioName: old.audioName || '',
+            audioType: old.audioType || '',
+            soundEffectBlob: old.soundEffectBlob || null,
+            soundEffectName: old.soundEffectName || '',
+            soundEffectType: old.soundEffectType || '',
+            soundEffectScene: old.soundEffectScene || '',
+            soundEffectSourceUrl: old.soundEffectSourceUrl || '',
+            soundEffectSourcePageUrl: old.soundEffectSourcePageUrl || '',
+            soundEffectLicense: old.soundEffectLicense || '',
+            soundEffectLicenseUrl: old.soundEffectLicenseUrl || '',
+            soundEffectLibrary: old.soundEffectLibrary || '',
+            quiz: old.quiz || null
+          };
+        });
+        const sharedLesson = {
+          id: source.id,
+          name: source.title || String(source.name || 'Shared PDF').replace(/\.pdf$/i, ''),
+          sharedUpdatedAt: updatedAt,
+          sharedSourcePdf: true,
+          sharedPdfPath: source.path || source.name || '',
+          images
+        };
+        await putLesson(sharedLesson);
+        localById.set(source.id, sharedLesson);
+        renderedPages.forEach(page => { if (page.url) URL.revokeObjectURL(page.url); });
+      } catch (err) {
+        console.warn('Could not convert shared PDF into a lesson:', source.path || source.name, err);
+      }
+    }
+  }
+
   async function init(){
     const ok = await openDatabase();
-    if (ok) await seedSharedLessonsFromServer();
+    if (ok) {
+      await seedSharedLessonsFromServer();
+      await seedSharedPdfsFromBucket();
+    }
     lessons = (await getAllLessons()).map(reviveLesson);"""
     if init_anchor not in page:
         raise RuntimeError("The original Wonderbook startup routine was not found.")
