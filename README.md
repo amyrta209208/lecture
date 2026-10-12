@@ -2,6 +2,21 @@
 
 This Streamlit deployment serves the original Wonderbook HTML interface inside Streamlit rather than rebuilding the screens from Streamlit widgets. This preserves the existing layout, drag/reorder controls, image selection and deletion, narration/audio tools, quiz editor, image transitions, PDF import/rendering, and PDF/PowerPoint export behavior from the HTML source.
 
+## Auto-load PDFs from Supabase Storage
+
+The main Wonderbook URL scans the configured Supabase Storage bucket (default name: `pdf`) when a visitor opens the app. Every PDF it finds is fetched through a short-lived signed URL and converted into page images in the browser with the **same PDF.js settings used by the standalone interface**. The resulting page images appear as a lesson named after the PDF. New or updated PDFs are refreshed using the Storage object's update timestamp.
+
+To enable this, configure these values in Streamlit Community Cloud → **Manage app → Settings → Secrets**:
+
+```toml
+SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
+SUPABASE_SERVICE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+SUPABASE_PDF_BUCKET = "pdf"
+EDITOR_PASSWORD = "choose-a-long-private-password"
+```
+
+Use a server-side secret/service-role key only in Streamlit Secrets; never place it in frontend code or commit it to GitHub. The app needs list/read permission through the server-side key. PDFs do not need to be manually imported as JSON packs after this configuration is active. Visitors still need internet access for PDF.js and for the PDF object to be fetched.
+
 ## How the app runs
 
 - Main app: `app.py`. It embeds `legacy/wonderbook_visual_automatch_fixed.html` and keeps its browser-side JavaScript behavior, including the PDF.js page-to-image conversion.
