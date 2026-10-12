@@ -406,10 +406,19 @@ def load_original_html() -> str:
       $('storageText').textContent = 'PDF loading issue';
     } else if (Number(pdfStatus.pdf_count || 0) > 0) {
       $('storageText').textContent = 'Shared PDFs connected';
+    } else if (pdfStatus.configured) {
+      $('storageText').textContent = 'Shared bucket checked';
     } else {
       $('storageText').textContent = 'On this device';
     }
     renderHome();
+    if (!lessons.length && (pdfStatus.error || pdfStatus.detail || pdfErrors.length)) {
+      $('emptyHome').innerHTML = '<div class="big">✦</div><strong>Shared lessons need attention</strong><div id="sharedPdfDiagnostic" style="margin-top:8px;max-width:760px;margin-left:auto;margin-right:auto;line-height:1.5"></div>';
+      const diagnostic = $('sharedPdfDiagnostic');
+      diagnostic.textContent = pdfErrors.length
+        ? ('The PDF was found, but the page conversion failed: ' + pdfErrors[0])
+        : [pdfStatus.error, pdfStatus.detail].filter(Boolean).join(' ');
+    }
     if (pdfStatus.error) showToast('Shared PDFs: ' + pdfStatus.error);
     else if (pdfStatus.detail && !Number(pdfStatus.pdf_count || 0)) showToast(pdfStatus.detail);
     if (pdfErrors.length) showToast('PDF conversion failed: ' + pdfErrors[0]);"""
