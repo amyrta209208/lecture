@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile Python sources
-        run: python -m compileall -q app.py
+        run: python -m compileall -q app.py streamlit_library_admin.py
       - name: Validate required artwork and config examples
         run: |
           test -s assets/hero.png
