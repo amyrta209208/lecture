@@ -4840,7 +4840,19 @@ body{padding:clamp(12px,2.2vw,30px)}
     renderHome();
   }
 
-  init();
+  init().catch(err => {
+    console.error('Wonderbook initialization failed:', err);
+    try {
+      const message = String(err && err.message || err || 'Unknown startup error');
+      $('storageText').textContent = 'Startup issue';
+      $('emptyHome').style.display = 'block';
+      $('emptyHome').innerHTML = '<div class="big">✦</div><strong>Wonderbook could not finish loading</strong><div id="startupDiagnostic" style="margin-top:8px;max-width:760px;margin-left:auto;margin-right:auto;line-height:1.5"></div>';
+      $('startupDiagnostic').textContent = message;
+      showToast('Wonderbook startup issue: ' + message);
+    } catch (diagnosticError) {
+      console.error('Could not display startup diagnostic:', diagnosticError);
+    }
+  });
 })();
 </script>
 </body>
