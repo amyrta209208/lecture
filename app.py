@@ -174,7 +174,31 @@ def get_shared_pdfs() -> list[dict[str, Any]]:
                 status["root_entries"] = len(entries)
         except Exception as exc:
             if not first_list_error:
-                first_list_error = f"Could not list bucket {bucket_name!r} ({type(exc).__name__}): {str(exc)[:240]}"
+                message = str(exc)
+                lowered = message.lower()
+                exception_name = type(exc).__name__.lower()
+                if (
+                    "connecterror" in exception_name
+                    or "name or service not known" in lowered
+                    or "temporary failure in name resolution" in lowered
+                    or "nodename nor servname provided" in lowered
+                    or "getaddrinfo failed" in lowered
+                ):
+                    first_list_error = (
+                        "Cannot resolve the Supabase host. SUPABASE_URL is incorrect or is not reachable from the app."
+                    )
+                    status["detail"] = (
+                        "Open Supabase → Project Settings → API (sometimes labelled Data API) and copy the full "
+                        "Project URL, which should look like https://your-project-ref.supabase.co. Paste it into "
+                        "Streamlit Cloud → Manage app → Settings → Secrets as SUPABASE_URL, save, then reboot. "
+                        "Do not use the Supabase dashboard URL or a database connection string."
+                    )
+                else:
+                    first_list_error = f"Could not list bucket {bucket_name!r} ({type(exc).__name__}): {message[:240]}"
+                    status["detail"] = (
+                        "If the Project URL is correct, verify the bucket name and that SUPABASE_SERVICE_KEY is "
+                        "the server-side service_role/secret key."
+                    )
             return
         for entry in entries:
             if not isinstance(entry, dict):
@@ -203,7 +227,8 @@ def get_shared_pdfs() -> list[dict[str, Any]]:
     walk()
     if first_list_error:
         status["error"] = first_list_error
-        status["detail"] = "Confirm the bucket name and server-side Storage permissions. The bucket contents were not fully listed."
+        if not status.get("detail"):
+            status["detail"] = "The bucket contents were not fully listed. Verify the bucket name and server-side Storage permissions."
     status["pdf_count"] = len(found)
     if not found and not status["error"]:
         status["detail"] = f"Connected to bucket {bucket_name!r}, but no PDF files were found. Confirm Allah.pdf is inside this exact bucket or one of its folders."
