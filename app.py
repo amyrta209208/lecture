@@ -361,12 +361,19 @@ def load_original_html() -> str:
       try {
         const pdfBlob = await fetchSharedBlob(source.url);
         if (!pdfBlob) {
-          console.warn('Could not load shared PDF:', source.path || source.name);
+          const label = String(source.name || source.path || 'PDF');
+          const message = label + ': the signed download URL returned no PDF data. Check Supabase Storage download permissions and URL format.';
+          console.error(message);
+          if (Array.isArray(window.__WB_PDF_LOAD_ERRORS__)) window.__WB_PDF_LOAD_ERRORS__.push(message);
           continue;
         }
         const pdfFile = new File([pdfBlob], source.name || 'Shared lesson.pdf', {type:'application/pdf'});
         const renderedPages = await pdfToImages(pdfFile);
-        if (!renderedPages.length) continue;
+        if (!renderedPages.length) {
+          const message = String(source.name || 'PDF') + ': PDF.js returned zero pages.';
+          if (Array.isArray(window.__WB_PDF_LOAD_ERRORS__)) window.__WB_PDF_LOAD_ERRORS__.push(message);
+          continue;
+        }
         const previousPages = existing && Array.isArray(existing.images) ? existing.images : [];
         const images = renderedPages.map((page, pageIndex) => {
           const old = previousPages[pageIndex] || {};
@@ -397,7 +404,13 @@ def load_original_html() -> str:
           sharedPdfPath: source.path || source.name || '',
           images
         };
-        await putLesson(sharedLesson);
+        const saved = await putLesson(sharedLesson);
+        if (!saved) {
+          const message = String(source.name || 'PDF') + ': rendered pages, but browser storage could not save the lesson. Check browser storage permissions/quota.';
+          if (Array.isArray(window.__WB_PDF_LOAD_ERRORS__)) window.__WB_PDF_LOAD_ERRORS__.push(message);
+          renderedPages.forEach(page => { if (page.url) URL.revokeObjectURL(page.url); });
+          continue;
+        }
         localById.set(source.id, sharedLesson);
         renderedPages.forEach(page => { if (page.url) URL.revokeObjectURL(page.url); });
       } catch (err) {
