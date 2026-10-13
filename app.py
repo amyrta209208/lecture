@@ -499,5 +499,21 @@ except Exception as exc:
     st.error(f"Wonderbook could not start: {exc}")
     st.stop()
 
+# Show the server-side bucket scan result outside the embedded HTML too. This is
+# deliberately conditional so normal visitors see the original UI without extra chrome.
+if not int(PDF_SCAN_STATUS.get("pdf_count") or 0):
+    st.warning(
+        "Wonderbook shared-PDF connection: "
+        + str(PDF_SCAN_STATUS.get("error") or "No PDFs were discovered.")
+    )
+    detail = str(PDF_SCAN_STATUS.get("detail") or "")
+    if detail:
+        st.caption(detail)
+else:
+    st.caption(
+        f"Wonderbook shared-PDF connection: found {PDF_SCAN_STATUS['pdf_count']} PDF(s) "
+        f"in the '{PDF_SCAN_STATUS['bucket']}' bucket."
+    )
+
 # The original JavaScript—including PDF.js parsing and page rendering—runs as-is.
 st.components.v1.html(wonderbook_html, height=1000, scrolling=True)
